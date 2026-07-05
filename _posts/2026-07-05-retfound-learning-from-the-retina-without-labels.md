@@ -1,486 +1,357 @@
 ---
 layout: single
-title: "RETFound: Learning From the Retina Without Labels"
+title: "RETFound: Learning Retinal Representations From What Is Missing"
 date: 2026-07-05
 permalink: /retfound/
 tags:
   - medical-ai
   - self-supervised-learning
+  - masked-autoencoders
   - foundation-models
   - retinal-imaging
-excerpt: "How masked autoencoders turn large collections of unlabelled retinal images into reusable clinical representations."
+excerpt: "A technical reading of RETFound: how sequential masked-autoencoder pretraining turns unlabelled retinal images into transferable representations."
 toc: true
 toc_sticky: true
 author_profile: false
 share: false
 comments: false
+mathjax: true
+classes: wide
 ---
 
-*How masked autoencoders turn large collections of unlabelled retinal images into reusable clinical representations.*
+*Can a model learn clinically useful retinal representations before it is ever told what a disease label means? RETFound addresses this question with sequential masked-autoencoder pretraining on natural and retinal images.*
 
-Retinal images are routinely collected in clinical care, but high-quality disease labels are expensive to obtain. RETFound asks whether a model can first learn from large amounts of unlabelled retinal data and then adapt efficiently to many different clinical tasks.
+> **Scope of this post.** This is not a section-by-section summary of Zhou *et al.* Instead, it reads RETFound as a scientific experiment about representation learning: what is the learning problem, what does each comparison isolate, and how far do the reported results justify the clinical claims?
 
-This blog post explains the main idea behind RETFound, how masked autoencoders are used for self-supervised learning, what the experiments demonstrate, and why important challenges remain before clinical deployment.
+## The question behind RETFound
 
-## The retina as a window into health
+Retinal imaging is an unusually attractive setting for medical machine learning. Colour fundus photographs and optical coherence tomography scans are routinely acquired in eye care, creating large image repositories long before anybody decides which downstream prediction task they may support. Yet the labels needed for conventional supervised learning are much scarcer than the images themselves. A reliable diabetic-retinopathy grade, a glaucoma assessment, or a future cardiovascular outcome may require specialist review, longitudinal records, or both.
 
-The retina is more than the light-sensitive tissue at the back of the eye. It is one of the few places in the human body where clinicians can non-invasively observe both neural tissue and a dense vascular network in vivo.
+This imbalance creates a familiar problem. A task-specific classifier can be excellent when it is trained on a well-labelled dataset collected for exactly that purpose. It is much less obvious how to reuse the same model for another disease, another imaging device, or another hospital. RETFound asks whether representation learning can move the expensive clinical supervision to the *end* of the pipeline: first learn a broad visual model of the retina from unlabelled images, then adapt that model with comparatively few labels to several clinical tasks.[^retfound][^foundation]
 
-This makes retinal imaging valuable for detecting ocular disease. A retinal image can reveal local pathological changes such as haemorrhages, exudates, changes around the optic nerve, or structural alterations in retinal layers. These signs can support the diagnosis and monitoring of conditions including diabetic retinopathy, glaucoma, and age-related macular degeneration.
+The paper therefore tests a stronger hypothesis than “self-supervision helps”. Its central claim is that **sequential self-supervised pretraining—first on natural images, then on retinal images—produces representations that transfer better than either source of supervision alone**. The downstream evidence spans three increasingly difficult settings:
 
-However, the retina may also provide indirect information about health beyond the eye. Retinal blood vessels are part of the circulatory system, while the optic nerve and retinal layers are closely connected to the central nervous system. Because of this, changes visible in retinal images may be associated with cardiovascular or neurodegenerative processes elsewhere in the body.
+1. **Diagnosis:** detecting disease that is already visible in the image;
+2. **Prognosis:** predicting whether a fellow eye will convert to wet age-related macular degeneration (AMD) within one year;
+3. **Oculomics:** estimating the three-year incidence of systemic conditions from retinal images.
 
-This emerging research area is often called *oculomics*: the use of retinal data to study systemic health. The idea is promising, but it should be interpreted carefully. A retinal image does not directly diagnose heart disease, stroke, or Parkinson's disease. Instead, it may contain visual patterns that help estimate future risk when combined with appropriate clinical data and validation.
+The third setting is especially important to phrase carefully. A retinal scan does not directly diagnose heart failure, myocardial infarction, stroke, or Parkinson’s disease. RETFound outputs a statistical risk estimate learned from associations in retrospective data; it does not establish a causal mechanism and it should not be interpreted as a stand-alone clinical decision-maker.
 
-RETFound is interesting because it attempts to learn these potentially useful retinal patterns without requiring disease labels during the first training stage. Rather than starting with a single clinical prediction task, it first learns a broad representation of retinal anatomy and image context.
+<!-- FIGURE PLACEHOLDER 1
+Create an original overview figure here:
+Retinal images -> self-supervised representation learning -> three downstream task families
+Diagnosis / prognosis / systemic-risk prediction.
+Caption: "Figure 1. RETFound turns routine retinal images into a shared starting point for several task-specific prediction models."
+-->
 
-## CFP and OCT: two complementary views of the retina
+## Retinal images are not one kind of data
 
-RETFound is trained separately on two common retinal imaging modalities: colour fundus photography, or CFP, and optical coherence tomography, or OCT.
+RETFound trains separate models for two modalities with very different visual structure.
 
-### Colour fundus photography
+### Colour fundus photography: a surface view
 
-CFP is a two-dimensional colour photograph of the retinal surface. It provides a wide view of visible structures such as the optic disc, the macula, and the retinal blood vessels.
+A colour fundus photograph (CFP) is a two-dimensional image of the retinal surface. It shows large blood vessels, the macula, the optic disc, and visible lesions such as haemorrhages or lipid exudates. This makes CFP particularly useful for diseases in which colour, vascular geometry, or surface-level pathology are informative.
 
-Because CFP captures colour and vascular appearance, it can reveal clinically important signs such as haemorrhages, lipid deposits, vessel abnormalities, or changes around the optic nerve. These features are particularly relevant for diseases such as diabetic retinopathy and glaucoma.
+### Optical coherence tomography: a cross-sectional view
 
-A useful intuition is that CFP answers the question: *What does the retina look like from above?*
+Optical coherence tomography (OCT) provides a cross-sectional image through the retina. It reveals the layered microstructure of the tissue and can expose changes in thickness, fluid, or layer integrity that a surface photograph may miss.
 
-### Optical coherence tomography
+A simple mental model is useful: **CFP asks what the retina looks like from above; OCT asks what it looks like in cross-section.** Their information is complementary, but the paper does not fuse them. Instead, it trains one RETFound model for CFP and another for OCT.
 
-OCT provides a different type of information. Instead of showing the retinal surface, it creates cross-sectional scans through the retina. This makes the layered internal structure of the tissue visible.
+That separation is methodologically sensible—the images have different appearance, dimensionality, and disease cues—but it is also a limitation. A multimodal model could potentially combine vascular information from CFP with layer-level structure from OCT. Whether this would improve the same clinical tasks remains untested here.
 
-With OCT, clinicians can examine changes in retinal thickness, disruptions of individual layers, fluid accumulation, and structural abnormalities that may not be obvious in a surface-level photograph. OCT is therefore especially useful when disease affects the internal anatomy of the retina.
+### What reaches the network?
 
-A useful intuition is that OCT answers the question: *What does the retina look like from the side?*
+The preprocessing choices matter because they define the problem that the model is actually allowed to solve.
 
-### Why use separate models?
+For CFP, the authors use AutoMorph to remove the background and retain the retinal field. For OCT, they extract the middle slice from the scan rather than modelling the full volumetric acquisition. Both modalities are resized to 256 × 256 pixels, then augmented with random crops that are resized to 224 × 224, random horizontal flips, and normalization.[^retfound]
 
-CFP and OCT contain complementary but very different visual information. CFP images emphasize colour, vessels, and surface-level lesions, whereas OCT images emphasize depth and retinal microstructure.
+The OCT decision deserves attention. Taking a central B-scan makes a large-scale Transformer pipeline tractable, but it discards information away from that slice. The reported OCT results should therefore be read as results for **single-slice OCT representation learning**, not as evidence that the entire 3D scan has been exploited.
 
-For this reason, the RETFound paper trains separate foundation models for CFP and OCT rather than combining both modalities in one network. This allows each model to specialize in the visual patterns of its own modality.
+## Formulating RETFound as a machine-learning problem
 
-At the same time, this is also a limitation of the current approach. A future multimodal model could potentially combine the broad vascular information from CFP with the detailed structural information from OCT.
+A useful way to understand RETFound is to separate its two objectives. The model solves one self-supervised image-reconstruction problem during pretraining and one supervised prediction problem during adaptation.
 
-## Why labels are the bottleneck in medical imaging
-
-Modern hospitals generate large amounts of imaging data as part of routine care. Retinal scans are collected during screening, follow-up appointments, and disease monitoring. In principle, this should make ophthalmology an ideal domain for deep learning.
-
-In practice, the limiting resource is not usually the image itself. It is the label.
-
-A high-quality clinical label may require an ophthalmologist to inspect an image, identify pathological findings, compare the image with patient records, and assign a diagnosis or disease severity grade. For prognosis tasks, labels can be even more difficult to obtain because they require longitudinal follow-up: researchers need to know what happened to the patient months or years after the image was acquired.
-
-This creates several challenges.
-
-First, expert labels are expensive. Specialist time is limited, and large-scale image annotation can be difficult to justify in a busy clinical environment.
-
-Second, labels are often task-specific. A dataset labelled for diabetic retinopathy may not include reliable labels for glaucoma, age-related macular degeneration, or future cardiovascular events. As a result, a model trained for one task cannot automatically be reused for another.
-
-Third, clinical labels are not always perfectly clean or consistent. Different graders may interpret borderline cases differently, and datasets may use different diagnostic definitions, devices, or grading protocols.
-
-A purely supervised model learns only from the labelled examples available for one specific task. If the dataset is small, biased, or narrowly defined, the model may learn representations that work well only in that setting.
-
-> **The central opportunity is therefore to learn from the images before asking the model to solve a specific clinical task.**
-
-This is where self-supervised learning becomes useful. Instead of requiring a clinician to tell the model what every image means, self-supervised learning creates a training signal directly from the image itself. The model can learn useful visual structure from large unlabelled datasets and later use a much smaller labelled dataset for task-specific adaptation.
-
-For medical imaging, this is especially attractive. The raw data are often abundant, while expert annotations are scarce.
-
-## From task-specific classifiers to retinal foundation models
-
-Traditional medical image classifiers are usually trained for one narrow question.
-
-For example, a model may be trained to answer:
-
-- Does this image show diabetic retinopathy?
-- Is this patient likely to have glaucoma?
-- Does this OCT scan contain a sign of wet age-related macular degeneration?
-
-These models can be useful, but each new task may require collecting a new labelled dataset and training a new model. This process does not scale well when the number of possible diseases, imaging devices, hospitals, and patient groups increases.
-
-A retinal foundation model takes a different approach.
-
-Instead of learning one task directly, the model is first pretrained on a very large collection of retinal images. During this stage, it is not optimized for a specific diagnosis. Its goal is to learn a broad representation of retinal anatomy, image structure, and visual context.
-
-After this pretraining stage, the same encoder can be adapted to several downstream tasks with comparatively little labelled data.
-
-In the RETFound paper, the downstream tasks cover three very different clinical settings:
-
-1. **Diagnosis** — identifying diseases that are present in the image now, such as diabetic retinopathy or glaucoma.
-
-2. **Prognosis** — predicting whether a future event may occur, such as conversion of the fellow eye to wet age-related macular degeneration within one year.
-
-3. **Oculomics** — estimating the future risk of systemic diseases, including myocardial infarction, heart failure, ischaemic stroke, and Parkinson's disease.
-
-This is the key promise of the foundation-model approach: one pretrained representation can support many specialized applications.
-
-However, calling a model a foundation model does not mean that it solves every task equally well. A pretrained representation can improve transfer learning, but performance still depends on the downstream data, the patient population, the imaging device, the clinical outcome definition, and the degree of domain shift between training and deployment.
-
-RETFound should therefore be understood as a reusable starting point. It is designed to reduce the amount of labelled data and training needed for new retinal tasks, rather than replacing clinical validation or eliminating the need for task-specific fine-tuning.
-
-## Masked autoencoders: learning by reconstructing hidden content
-
-The core method behind RETFound is a **masked autoencoder**, or MAE.
-
-A masked autoencoder learns from an image by hiding a large part of it and asking the model to reconstruct what is missing. Unlike supervised learning, it does not need a disease label. The original image provides its own training signal.
-
-![A masked autoencoder pipeline: a retinal image is split into patches, most patches are hidden, a Vision Transformer encoder processes visible patches, and a decoder reconstructs the missing content.](/images/retfound/mae-pipeline.png)
-{: .align-center}
-
-*Figure 1. The masked-autoencoder learning process used by RETFound. Illustration created for this post.*
-
-### Step 1: Split the image into patches
-
-Instead of processing the image as one large grid of pixels, the model divides it into small image patches. RETFound uses patches of size 16 × 16 pixels.
-
-Each patch is treated similarly to a token in a language model. In natural language processing, a Transformer receives words or subwords as tokens. In a Vision Transformer, it receives image patches as visual tokens.
-
-### Step 2: Hide most of the image
-
-A large fraction of patches is removed before the image is given to the encoder.
-
-For RETFound, the masking ratio is intentionally high:
-
-- **75% of CFP patches are masked**
-- **85% of OCT patches are masked**
-
-This makes the reconstruction task difficult enough that the model cannot solve it only by copying nearby pixel patterns. To infer the missing content, it must learn broader image context, such as the continuity of blood vessels, the typical location of the optic disc, or the layered structure visible in OCT.
-
-### Step 3: Encode the visible context
-
-Only the visible patches are passed to the encoder. RETFound uses a large Vision Transformer encoder, specifically a ViT-Large model with 24 Transformer blocks and an embedding size of 1,024.
-
-The encoder transforms the visible retinal patches into high-level feature representations. At this point, it does not predict a disease label. Its task is to summarize enough anatomical and visual context to make reconstruction possible.
-
-### Step 4: Reconstruct the missing patches
-
-A smaller Transformer decoder receives the encoded visible patches together with placeholder tokens representing the masked locations.
-
-The decoder attempts to reconstruct the original image content. During pretraining, the model is optimized according to reconstruction quality on the hidden patches.
-
-The important idea is not that a reconstructed retinal image must look visually perfect. The important idea is that reconstruction encourages the encoder to learn reusable information about retinal structure.
-
-### Why is this useful for medical images?
-
-Medical images contain recurring anatomical patterns. A healthy retina has characteristic vessel geometry, layer organization, and spatial relationships between structures. Disease may appear as a deviation from these normal patterns.
-
-By repeatedly reconstructing heavily masked retinal images, the encoder is encouraged to learn this structure before it ever sees a downstream clinical label.
-
-This creates a useful separation:
-
-| Training stage | Input | Target | Main learning signal |
+| Stage | Input | Output / target | Learning objective |
 |---|---|---|---|
-| Self-supervised pretraining | Partially masked retinal image | Missing image patches | Reconstruction quality |
-| Downstream fine-tuning | Complete retinal image | Disease label or future outcome | Supervised classification objective |
+| **Masked-autoencoder pretraining** | A retinal image with many patches hidden | Reconstruction of the missing patches | Minimize reconstruction error on masked content |
+| **Task-specific fine-tuning** | A complete CFP or OCT image | Disease class or event probability | Minimize supervised classification loss with label smoothing |
 
-The MAE objective therefore teaches the model **how retinal images are organized**, while downstream fine-tuning teaches it **which visual patterns matter for a specific clinical task**.
+### Stage 1: reconstructing masked retinal content
 
-## RETFound's sequential pretraining strategy
+Let a preprocessed image be denoted by \(x\). After the 224 × 224 crop, RETFound divides it into 16 × 16 patches, producing a sequence of \(N = 14 \times 14 = 196\) visual tokens. Let \(M\) be the set of masked patch indices and \(V\) the visible indices.
 
-RETFound does not learn retinal representations from scratch. Instead, it uses two consecutive self-supervised learning stages.
+The encoder receives only the visible patches:
 
-![Sequential pretraining diagram: self-supervised learning on ImageNet-1k, continued self-supervised learning on retinal images, then supervised fine-tuning for diagnosis, prognosis, and systemic risk prediction.](/images/retfound/sequential-pretraining.png)
-{: .align-center}
+\[
+z = E_{\theta}(x_V),
+\]
 
-*Figure 2. RETFound first learns generic visual structure from natural images and then specializes on retinal images before task-specific fine-tuning. Illustration created for this post.*
+where \(E_{\theta}\) is the Vision Transformer encoder. A decoder then receives the encoded visible representation together with mask tokens and estimates the missing content:
 
-### Stage 1: self-supervised learning on natural images
+\[
+\hat{x}_M = D_{\phi}(z, M).
+\]
 
-The first stage starts with ImageNet-1k, a large dataset of natural images. The model learns generic visual concepts such as edges, texture, shape, object boundaries, and spatial structure.
+Conceptually, the pretraining loss can be written as
 
-Although natural images are very different from retinal scans, these general visual features can still provide a useful initialization for medical imaging.
+\[
+\mathcal{L}_{\mathrm{MAE}}
+=
+\frac{1}{|M|}
+\sum_{i \in M}
+\ell(\hat{x}_i, x_i),
+\]
 
-### Stage 2: continued self-supervised learning on retinal images
+where \(\ell\) is a reconstruction-error term evaluated only on the hidden patches. The paper describes the objective as reconstruction error; the equation above is a compact way to state the masked-patch objective rather than an additional modelling assumption.[^retfound][^mae]
 
-The second stage continues MAE pretraining on retinal images.
+This is the first place where the “self” in self-supervised learning becomes concrete: the image supplies its own target. No clinician has to annotate the pretraining corpus.
 
-The retinal dataset contains approximately 1.6 million unlabelled images:
+### Stage 2: predicting a labelled clinical outcome
 
-- 904,170 colour fundus photographs
-- 736,442 OCT scans
+For a downstream task, the decoder is discarded. The retained encoder maps a full image \(x\) to a representation \(h\), and a multilayer perceptron head \(g_{\psi}\) maps that representation to class probabilities:
 
-At this stage, the model specializes its generic visual representations to retinal anatomy, retinal image quality, vessel patterns, optic-disc appearance, and OCT layer structure.
+\[
+h = E_{\theta}(x), \qquad
+p(y \mid x) = g_{\psi}(h).
+\]
 
-### Why not train only on retinal images?
+For a multiclass task, a label-smoothed version of the one-hot target \(\tilde{y}\) is used in a cross-entropy-style objective:
 
-The paper compares RETFound with a retinal SSL model trained from scratch. This comparison is important because it tests whether natural-image pretraining contributes useful information beyond the retinal data itself.
+\[
+\mathcal{L}_{\mathrm{FT}}
+=
+-\sum_{c=1}^{C} \tilde{y}_{c} \log p(y=c \mid x).
+\]
 
-The reported results suggest that it does.
+For binary prognosis and incidence tasks, the same logic reduces to estimating a probability for the event of interest. The authors train the downstream models for 50 epochs and select the checkpoint with the highest validation AUROC.[^retfound]
 
-RETFound generally performs better than both:
+This two-stage formulation is the key conceptual distinction:
 
-- a model pretrained only on natural images, and
-- a model pretrained only on retinal images from scratch.
+- Pretraining asks: **What visual structure is needed to complete a retinal image?**
+- Fine-tuning asks: **Which parts of that learned representation help predict this particular clinical label?**
 
-This supports the idea that generic visual knowledge and retina-specific knowledge are complementary.
+## Learning anatomy from missing patches
 
-However, this should not be interpreted as a universal rule for every medical-imaging problem. The benefit of sequential pretraining depends on the amount of domain data, the similarity between source and target images, the architecture, and the downstream task.
+RETFound uses a masked autoencoder (MAE), a self-supervised architecture introduced for image representation learning by He *et al.*[^mae] The model deliberately hides most of its input, processes only the visible part with a large encoder, and reconstructs the image with a lighter decoder.
 
-## From pretrained features to clinical predictions
+<!-- FIGURE PLACEHOLDER 2
+Create an original MAE diagram here:
+224x224 CFP/OCT -> 196 patches -> random masking -> visible patches to ViT-Large encoder -> latent tokens + mask tokens -> ViT-Small decoder -> reconstructed masked patches.
+Indicate 75% masking for CFP and 85% for OCT.
+Caption: "Figure 2. RETFound's masked-autoencoder objective. The encoder sees only the visible patches; reconstruction loss is computed on masked patches."
+-->
 
-After pretraining, RETFound is adapted to a particular clinical task using labelled data.
+### Why mask so aggressively?
 
-The reconstruction decoder is discarded. Only the pretrained ViT-Large encoder is retained, together with a multilayer perceptron classification head.
+RETFound masks 75% of CFP patches and 85% of OCT patches.[^retfound] At first this may sound counterintuitive: why make the input so incomplete?
 
-![Fine-tuning diagram: a complete CFP or OCT image enters the pretrained encoder, the decoder is discarded, and a classification head outputs disease probabilities.](/images/retfound/fine-tuning.png)
-{: .align-center}
+The reason is to prevent easy local shortcuts. If only a tiny region were removed, a decoder might restore it by interpolating nearby texture. With most of the image hidden, the model has to use longer-range retinal regularities: vessel continuity, typical optic-disc position, the geometry of the fundus, or the layered organization of OCT.
 
-*Figure 3. During downstream adaptation, RETFound keeps the pretrained encoder and replaces the reconstruction objective with a task-specific classification objective. Illustration created for this post.*
+This does **not** mean that the model learns medical reasoning in a human sense. It means that good reconstruction becomes difficult without representing recurring anatomical context. Whether that context is also useful for disease prediction is an empirical question—the remainder of the paper is designed to test it.
 
-The input is now a complete CFP or OCT image. The encoder converts it into a high-level representation, and the classification head predicts an outcome.
+### Architecture and training scale
 
-Depending on the task, the output can be:
+The encoder is the large Vision Transformer variant,[^vit] with 24 blocks and 1,024 features per token. Reconstruction is handled by a smaller eight-block decoder with 512-dimensional token features. The retinal stage uses 800 training epochs, a batch size of 1,792, and eight NVIDIA A100 GPUs; the authors report roughly fourteen days of pretraining time.[^retfound]
 
-- a current disease category, such as diabetic retinopathy or glaucoma;
-- the probability of future conversion to wet age-related macular degeneration;
-- the predicted risk of a systemic event within the next three years.
+| Component | RETFound configuration |
+|---|---|
+| Encoder | ViT-Large; 24 blocks; 1,024 features per token |
+| Decoder | Smaller ViT; 8 blocks; 512 features per token |
+| Patch size | 16 × 16 pixels |
+| CFP masking ratio | 75% |
+| OCT masking ratio | 85% |
+| Retinal SSL corpus | 904,170 CFP images + 736,442 OCT images |
+| Retinal SSL compute | 8 × A100 GPUs, approximately 14 days |
 
-For multiclass tasks, the model predicts probabilities across several disease categories. For binary tasks, it predicts the probability of one clinical outcome occurring.
+The scale is both a strength and a caveat. It makes a rich retinal representation plausible, but it also means that training a comparable foundation model from scratch is not equally accessible to every clinical research group.
 
-The fine-tuning stage uses labelled data and includes label smoothing, which softens the training targets slightly to reduce overconfidence and overfitting.
+## Why the pretraining order is itself an experiment
 
-This setup is computationally practical because fine-tuning is much cheaper than pretraining a foundation model from scratch. According to the paper, pretraining required eight NVIDIA A100 GPUs for around two weeks, whereas a downstream fine-tuning experiment with 1,000 images could be run on a single NVIDIA T4 GPU in approximately 70 minutes.
+The most interesting part of RETFound is not merely its architecture. It is the four-way comparison used to ask *where useful representations come from*.
 
-## How was RETFound evaluated?
-
-The authors evaluate RETFound across several tasks rather than relying on a single benchmark.
-
-Their central comparison asks:
-
-> Does sequential self-supervised pretraining on natural and retinal images produce more transferable representations than other common pretraining strategies?
-
-To answer this, they compare four main models.
-
-| Model | Pretraining strategy | What it tests |
+| Model | Pretraining route | Main question addressed |
 |---|---|---|
-| **SL-ImageNet** | Supervised learning on ImageNet-21k | Classical transfer learning from labelled natural images |
-| **SSL-ImageNet** | Self-supervised learning on ImageNet-1k | Generic self-supervised visual features |
-| **SSL-Retinal** | Self-supervised learning on retinal images from scratch | Retina-specific features without natural-image initialization |
-| **RETFound** | SSL on ImageNet-1k, then SSL on retinal images | The combination of generic and retina-specific representation learning |
+| **SL-ImageNet** | Supervised learning on ImageNet-21k | How strong is conventional transfer from labelled natural images? |
+| **SSL-ImageNet** | Self-supervised learning on ImageNet-1k | How far do generic SSL image representations transfer without retinal specialization? |
+| **SSL-Retinal** | SSL on retinal images from random initialization | Is retinal-domain SSL sufficient on its own? |
+| **RETFound** | SSL on ImageNet-1k, then SSL on retinal images | Does generic SSL initialization add value before retinal specialization? |
 
-For the main experiments, the downstream fine-tuning procedure is kept comparable across models. This makes the pretraining strategy the main factor under investigation.
+The cleanest comparison is **SSL-Retinal versus RETFound**. Both learn from retinal images with SSL, but RETFound begins from an ImageNet-SSL representation. If RETFound is better, this supports the idea that generic visual structure helps the later retinal stage.
 
-### Internal and external evaluation
+The other comparisons require more care.
 
-The paper distinguishes between internal and external evaluation.
+- **SL-ImageNet versus SSL-ImageNet** changes both the supervision type *and* the source dataset: SL-ImageNet uses ImageNet-21k with roughly 14 million labelled images, whereas SSL-ImageNet uses ImageNet-1k with about 1.4 million images. It is therefore not a perfectly controlled “supervised versus self-supervised” ablation.
+- **MAE versus contrastive SSL** is also not a pure objective-only comparison. The paper substitutes SimCLR, SwAV, MoCo-v3, and DINO into the framework, but their recommended architectures and hyperparameters differ. For example, SimCLR and SwAV use ResNet-based models while other variants use Transformers.[^retfound]
 
-**Internal evaluation** means that the model is evaluated on a held-out test split from the same dataset used for fine-tuning.
+This does not invalidate the experiments. It simply changes the appropriate conclusion. The paper provides strong evidence that MAE is the best-performing *tested configuration* in this study. It does not isolate the MAE objective so completely that one can claim it is universally superior to contrastive learning.
 
-**External evaluation** is more demanding. The model is fine-tuned on one dataset or cohort and tested on another dataset with different patients, clinical settings, cameras, or data distributions.
+<!-- FIGURE PLACEHOLDER 3
+Create an original 2x2 ablation-logic diagram:
+Rows: natural-image stage absent/present
+Columns: retinal SSL absent/present
+Place SSL-ImageNet, SSL-Retinal, RETFound; show SL-ImageNet separately as supervised reference.
+Caption: "Figure 3. The four baselines are best read as an ablation of representation sources, not as a single binary comparison."
+-->
 
-External evaluation matters because medical models often perform well in the environment where they were developed but degrade after being moved to a new hospital or population.
+## Evaluation: which claims are actually tested?
 
-### Metrics
+RETFound is evaluated on more than one kind of experiment, and each experiment supports a different claim.
 
-The main metrics are AUROC and AUPR.
+| Claim | Experimental test | What the test can support | What it cannot establish |
+|---|---|---|---|
+| Better ocular transfer | Cross-dataset diabetic-retinopathy evaluation | Robustness across selected retinal datasets | Universal robustness to every clinic or country |
+| Better future-risk prediction | One-year wet-AMD and three-year systemic-incidence tasks | Predictive association within the defined cohorts | Causality or clinical benefit |
+| Better label efficiency | Fine-tuning with 10–100% of labels | Lower label demand for selected tasks | That labels are unnecessary |
+| Better calibration | Reliability diagrams and expected calibration error | Better probability agreement in retrospective test data | Safe deployment without monitoring |
+| Clinically meaningful representations | Reconstructions and RELPROP maps | Plausible anatomical or pathological focus | A complete explanation of the model's reasoning |
 
-- **AUROC** measures how well a model separates positive and negative cases across all possible decision thresholds.
-- **AUPR** measures the trade-off between precision and recall and is particularly informative when positive cases are rare.
+### Data sources and task families
 
-For multiclass tasks, the paper computes results for each class and then averages them.
+The pretraining corpus contains 904,170 CFP images and 736,442 OCT images. The dominant source is MEH-MIDAS, a retrospective Moorfields collection of imaging records from people with diabetes; EyePACS contributes additional CFP data and a public OCT dataset contributes the remaining OCT data.[^retfound]
 
-Each experiment is repeated using five random seeds. The reported figures show mean performance and 95% confidence intervals across these runs. The authors also use two-sided t-tests to compare RETFound with the strongest competing baseline.
+For ocular diagnosis, the authors use public datasets covering diabetic retinopathy, glaucoma, and multi-category retinal disease. For prognosis and systemic prediction, they use the MEH-AlzEye record-linkage cohort. The systemic external evaluation transfers models trained on MEH-AlzEye to UK Biobank.[^retfound]
 
-This statistical design is useful, but it is worth remembering what it does and does not measure. Repeating training with different seeds measures optimization and sampling variation within the experiment. It is not equivalent to validating a model in five independent real-world clinical trials.
+This distinction matters. Some of the ocular tasks are external across countries and public datasets. The systemic “external” evaluation is a genuine cohort shift, but both source and target remain UK-based. It should not be equated with worldwide validation.
 
-## What did the experiments show?
+### Metrics and uncertainty
 
-The results can be summarized in three main findings.
+The paper reports AUROC and AUPR.
 
-![Results summary diagram: RETFound improves ocular transfer, shows stronger label efficiency, and often outperforms baselines on systemic-risk prediction while still suffering from external performance drops.](/images/retfound/results-summary.png)
-{: .align-center}
+- **AUROC** summarizes ranking ability across all classification thresholds.
+- **AUPR** is particularly informative when positive cases are uncommon, because it focuses on the precision–recall trade-off.
 
-*Figure 4. High-level summary of the main experimental findings and the remaining gap between research performance and clinical deployment. Illustration created for this post.*
+Each task is trained with five random seeds. The reported 95% confidence intervals are calculated from variation across these five training replicas, and two-sided t-tests compare RETFound with the strongest competing model.[^retfound]
 
-### 1. Strong performance for ocular diagnosis and prognosis
+This is useful for assessing sensitivity to optimization randomness. It is not the same as patient-level uncertainty or repeated validation across five independent hospitals. In particular, seed-based confidence intervals can look very narrow even when the more important uncertainty is the shift from one clinical environment to another.
 
-RETFound performs best in most ocular-disease diagnosis datasets and in all reported cross-dataset diabetic-retinopathy evaluations.
+## What the experiments support—and where the evidence stops
 
-The cross-dataset experiments are especially informative. Instead of training and testing within one dataset, the model is fine-tuned on one diabetic-retinopathy dataset and evaluated on another. This tests whether learned representations survive differences in acquisition conditions, populations, and data quality.
+### Ocular diagnosis: the strongest transfer evidence
 
-RETFound also achieves the strongest performance for one-year prediction of conversion to wet age-related macular degeneration in the fellow eye:
+The cross-dataset diabetic-retinopathy experiments provide some of the clearest evidence that RETFound learns transferable features. A model fine-tuned on one dataset is evaluated on another rather than merely on a held-out split from the same source.
 
-| Prognosis task | Input modality | RETFound AUROC |
-|---|---:|---:|
-| One-year wet-AMD conversion | CFP | 0.862 |
-| One-year wet-AMD conversion | OCT | 0.799 |
+For example, when fine-tuned on APTOS-2019, RETFound achieved AUROC 0.822 on IDRiD and 0.738 on MESSIDOR-2. The paper reports that RETFound ranked first in all cross-evaluations among the compared models.[^retfound]
 
-These results suggest that the learned representation is useful not only for recognizing visible disease signs but also for a clinically meaningful prediction task.
+This is a stronger result than a conventional random train–test split because acquisition conditions, label protocols, and population characteristics differ between datasets. Still, it is transfer across a limited set of retinal benchmarks, not evidence that the model will work unchanged on arbitrary fundus cameras or care pathways.
 
-### 2. Better performance on difficult systemic prediction tasks
+### Prognosis: predicting wet-AMD conversion
 
-The systemic-disease tasks are much more challenging than ocular diagnosis.
+For one-year prediction of wet-AMD conversion in the fellow eye, RETFound reaches an AUROC of 0.862 with CFP and 0.799 with OCT.[^retfound]
 
-RETFound is evaluated for three-year incidence prediction of myocardial infarction, heart failure, ischaemic stroke, and Parkinson's disease. It generally improves on the compared baselines in internal evaluation and in most external evaluations.
+This task is clinically interesting because it asks the model to predict a future event rather than recognize an already visible diagnosis. It also illustrates why “fellow eye” matters: the input comes from the eye that has not yet converted, so the model is searching for risk-associated patterns before the target event occurs.
 
-For example, in the internal CFP setting, RETFound achieves AUROC values of:
+The result is encouraging, but it remains an internal evaluation on the AlzEye cohort. Prospective validation would be needed to determine whether the prediction changes surveillance, treatment timing, or patient outcomes.
 
-| Systemic prediction task | RETFound AUROC with CFP |
-|---|---:|
-| Myocardial infarction | 0.737 |
-| Heart failure | 0.794 |
-| Ischaemic stroke | 0.754 |
-| Parkinson's disease | 0.669 |
+### Oculomics: useful signal, difficult interpretation
 
-These numbers should be interpreted carefully.
+The systemic tasks are the most ambitious and the easiest to overstate. In internal CFP evaluation, RETFound reports AUROCs of 0.737 for myocardial infarction, 0.794 for heart failure, 0.754 for ischaemic stroke, and 0.669 for Parkinson’s disease.[^retfound]
 
-The fact that RETFound ranks above the baselines is meaningful evidence that retina-specific pretraining helps. But relative improvement alone is not enough to establish clinical usefulness. The absolute performance is moderate for several tasks, and performance decreases when the model is evaluated on the external UK Biobank cohort.
+These outcomes show that the learned retinal representation improves relative ranking over the baselines in the paper. They do not show that a retinal image alone is sufficient for high-stakes systemic diagnosis.
 
-In other words, retinal images may contain signals related to systemic risk, but this does not mean that the model is ready to make high-stakes medical decisions independently.
+The external results reinforce this caution. Performance decreases after transfer to UK Biobank, and for external ischaemic-stroke prediction RETFound and SSL-Retinal perform similarly rather than showing a clear advantage for sequential pretraining.[^retfound] The paper attributes part of this challenge to shifts in demographics, ethnicity, and imaging devices. It reports an AUROC drop for RETFound's stroke prediction of 0.16 with CFP and 0.19 with OCT between internal and external settings.[^retfound]
 
-### 3. Better label efficiency
+The scientifically balanced conclusion is therefore: retinal images appear to carry predictive information about systemic risk, and retinal SSL helps access that information. The paper does not demonstrate a causal pathway from retinal appearance to systemic disease, nor a ready-to-deploy screening tool.
 
-The label-efficiency experiments are one of the paper's most practical contributions.
+### Label efficiency: a practically important result
 
-Instead of using all labelled training examples, the authors fine-tune models with different fractions of the available data. RETFound performs particularly well when labels are scarce.
+RETFound’s most immediately useful contribution may be the label-efficiency analysis. The authors fine-tune models using different fractions of the available labels and find that RETFound outperforms the comparison models with only 10% of the labelled data for heart-failure and myocardial-infarction prediction.[^retfound]
 
-For heart-failure and myocardial-infarction prediction, RETFound outperforms the comparison models even when trained with only 10% of the labelled training data.
+This is not a statement that 90% of labels can always be discarded. The result is task-specific and depends on the target performance level. What it does show is that a pretrained retinal encoder can shift part of the learning burden away from downstream clinical annotation.
 
-This does not mean that the remaining 90% of labels are unnecessary in every setting. Rather, it suggests that the pretrained encoder already captures useful retinal features, so fewer task-specific labels are needed to reach a given performance level.
+The adaptation-efficiency experiment points in the same direction. For myocardial-infarction prediction, RETFound reaches the selected validation checkpoint substantially earlier, corresponding to an estimated 80% reduction in training time relative to the strongest comparison model; for diabetic retinopathy on MESSIDOR-2, the corresponding estimate is 46%.[^retfound] These are convergence-time estimates under the reported training setup, not a universal promise of identical wall-clock savings.
 
-The paper also reports faster adaptation. For the myocardial-infarction task, RETFound reaches convergence much earlier than the strongest baseline, corresponding to a potential training-time saving of around 80%.
+### Does the model attend to medically meaningful structures?
 
-Together, the label-efficiency and adaptation-efficiency results support the central value proposition of foundation models in medicine: expensive labels can be reserved for the final task-specific adaptation step instead of being required from the beginning.
+The paper offers two qualitative analyses.
 
-### A note on the MAE-versus-contrastive comparison
+First, reconstruction examples show that the MAE can restore major retinal structures from heavily masked inputs, including vessels and optic-disc regions in CFP and layers such as the retinal nerve fibre layer in OCT.
 
-The paper also compares MAE with contrastive self-supervised approaches including SimCLR, SwAV, MoCo-v3, and DINO.
+Second, RELPROP maps,[^relprop] highlight image regions that contributed to downstream predictions. The maps emphasize haemorrhages and exudates for diabetic retinopathy, regions around the optic nerve for glaucoma, and vascular or layer-level structures for systemic tasks.[^retfound]
 
-MAE performs best in most reported downstream tasks. This is useful evidence that reconstruction-based learning works well in this setting.
+These findings are useful because they make the representation hypothesis plausible. They do not prove that the model has discovered the causal mechanism of disease. Saliency methods show sensitivity of a model output to image regions; they do not turn a neural-network decision into a clinical explanation.
 
-However, the authors appropriately caution against interpreting the comparison as absolute proof that MAE is always superior. The approaches differ not only in their learning objective but also in architecture and hyperparameter choices. For example, some contrastive baselines use ResNet-based encoders while others use Transformers.
+<!-- FIGURE PLACEHOLDER 4
+Use either:
+(A) a carefully attributed crop of RETFound Extended Data Fig. 6 under the paper's CC BY 4.0 licence, or
+(B) an original side-by-side graphic that explains the difference between reconstruction evidence, relevance evidence, and causal evidence.
+Caption suggestion: "Figure 4. Reconstruction and relevance maps are supporting evidence for anatomical sensitivity, not proof of causal reasoning."
+-->
 
-The safest conclusion is therefore:
+## Critical reading: four reasons not to over-claim
 
-> In this experimental setup, MAE was the strongest tested self-supervised strategy for RETFound, but perfectly controlled comparisons would be needed to isolate the effect of the objective itself.
+### 1. “External” does not mean globally representative
 
-## What did RETFound actually learn?
+The paper deserves credit for evaluating beyond a single internal split. However, external systemic validation moves from MEH-AlzEye to UK Biobank—two UK cohorts with different, but not globally comprehensive, participant and acquisition profiles.
 
-A central challenge in medical AI is understanding whether a model uses clinically meaningful information or exploits shortcuts that happen to correlate with the label.
+Most pretraining images also come from MEH-MIDAS, a diabetic population. A representation learned from this source may encode both general retinal anatomy and characteristics correlated with diabetes care, device mix, or local referral patterns. Broader international evaluation is needed before claims about population-level generalizability become convincing.
 
-The paper provides two forms of qualitative evidence.
+### 2. Age is a real confounder, and the paper only partially removes it
 
-### Reconstruction of retinal structure
+Age affects both systemic disease incidence and retinal appearance. A model that detects age-related retinal changes can therefore appear to predict cardiovascular or neurodegenerative outcomes even if it has not learned disease-specific biology.
 
-First, the MAE reconstruction examples show that RETFound can recover major retinal anatomy even when most image patches are hidden.
+The authors explicitly test this concern for myocardial infarction. They hold the disease group fixed and vary the age distribution of controls. When the age gap is largest, a logistic-regression baseline using age alone reaches AUROC 0.63. As the groups become more age-matched, RETFound remains more stable than the competing models.[^retfound]
 
-For CFP images, the model reconstructs structures such as large vessels and the optic nerve. For OCT images, it reconstructs retinal layers including the retinal nerve fibre layer and retinal pigment epithelium.
+This is a valuable control experiment. It shows that the authors did not ignore age. But it does not remove every confounder: ethnicity, device, co-morbidity, socioeconomic factors, care access, and image quality can all correlate with both retinal appearance and clinical outcomes.
 
-This supports the claim that pretraining captures retina-specific visual context.
+### 3. The SSL comparison is informative, not perfectly isolated
 
-At the same time, successful reconstruction is not direct proof that the representation is clinically optimal. A model may reconstruct visually plausible structure without necessarily learning the causal features needed for every downstream disease task.
+RETFound with MAE performs best in most of the reported SSL-comparison tasks. Yet differences among MAE, DINO, SimCLR, SwAV, and MoCo-v3 include more than the pretext objective. Architectures and hyperparameters vary, and the paper follows each method's recommended setup.[^retfound]
 
-### Relevance maps during prediction
+The appropriate interpretation is modest: **within this benchmark and implementation family, the MAE configuration was strongest**. A more definitive claim about reconstruction versus contrastive learning would require matched encoders, compute budgets, augmentations, and optimization schedules.
 
-Second, the authors use RELPROP, a relevance-propagation method for Transformer models.
+### 4. Retrospective accuracy is not clinical utility
 
-For ocular disease prediction, relevance maps highlight clinically plausible regions:
+Even a well-calibrated retrospective model can fail to improve care. RETFound reports lower expected calibration error than comparison models on the evaluated oculomic tasks, which is promising.[^retfound] But calibration can drift after deployment, especially when disease prevalence, devices, or referral behaviour change.
 
-- haemorrhages and hard exudates for diabetic retinopathy;
-- regions around the optic nerve for glaucoma;
-- retinal structures and layers for several OCT-based tasks.
+The missing evidence is prospective and workflow-based:
 
-For systemic prediction, the highlighted regions include retinal vasculature, the optic nerve, and retinal layers.
+- Would the model change a clinician’s action?
+- Would that action improve patient outcomes?
+- How should uncertainty be communicated to clinicians and patients?
+- What happens when one modality is unavailable or image quality is poor?
+- Do errors differ systematically across demographic groups?
 
-These patterns are encouraging because they align with known clinical hypotheses. However, relevance maps should not be treated as complete explanations.
+These questions are not objections to representation learning. They are the next scientific and clinical tests required to turn a strong retrospective model into a trustworthy tool.
 
-A heatmap can show which regions contributed to a prediction, but it cannot prove that the model reasons like a clinician, that the highlighted region caused the prediction, or that the model would behave safely under all clinical conditions.
+## A roadmap toward clinical usefulness
 
-### Age as a potential confounder
+Several extensions follow naturally from the analysis above.
 
-The paper also investigates age-related confounding for myocardial-infarction prediction.
+1. **Multimodal learning.** CFP and OCT could be fused rather than modelled independently. This may combine vascular and surface information with cross-sectional retinal structure.
 
-Age is strongly related to many systemic diseases and may also influence retinal appearance. A model could therefore achieve apparently good performance simply by recognizing age-related visual changes rather than disease-specific signs.
+2. **Full-volume OCT modelling.** Replacing the middle-slice approximation with a volumetric model could recover information discarded by the current preprocessing pipeline.
 
-The authors compare disease cases with control groups of different average ages. They show that a simple logistic-regression model using age alone performs well when the age gap between cases and controls is large.
+3. **Richer clinical covariates.** Demographics, visual acuity, prior diagnoses, and longitudinal information may improve both prediction and confounding control—provided they are handled transparently and fairly.
 
-As the age distributions become more similar, RETFound remains more stable than the other models. This is a useful analysis because it shows that the authors considered an important confounder.
+4. **Geographically broader pretraining and evaluation.** A retinal foundation model should be trained and tested across device vendors, countries, healthcare systems, and patient groups.
 
-Still, it does not eliminate all possible confounding. Retinal images can encode many correlated signals, including age, ethnicity, imaging device, coexisting diseases, and healthcare-access patterns.
+5. **Prospective evaluation with calibration monitoring.** Performance metrics alone are insufficient. Future studies should evaluate decision impact, subgroup reliability, uncertainty handling, and post-deployment drift.
 
-## Limitations and future directions
-
-RETFound is a strong research foundation model, but several limitations should be kept in mind.
-
-### Development data are geographically concentrated
-
-Most development images come from UK cohorts. Although the paper includes public datasets from several countries for ocular-disease evaluation, the large-scale pretraining data are not globally representative.
-
-A broader and more balanced pretraining dataset would be needed to understand whether performance transfers equally well across geographic regions, ethnic groups, camera systems, and clinical workflows.
-
-### External performance drops remain substantial
-
-RETFound usually performs better than the comparison models on external evaluation, but the paper still reports meaningful performance drops when moving from the MEH-AlzEye cohort to UK Biobank.
-
-This is not a minor technical detail. It is one of the most important findings for clinical translation.
-
-A model can be relatively more robust than a baseline and still be insufficiently robust for deployment. Future work should test RETFound prospectively across independent hospitals, countries, cameras, and patient populations.
-
-### CFP and OCT are not combined
-
-CFP and OCT provide complementary information, but RETFound trains separate models for each modality.
-
-A future multimodal model could combine:
-
-- vascular and colour information from CFP;
-- detailed retinal-layer structure from OCT;
-- non-image information such as age, sex, visual acuity, medical history, and laboratory measurements.
-
-This may improve performance, but it would also introduce new challenges related to missing modalities, data harmonization, privacy, and fairness.
-
-### Systemic prediction remains an ambitious use case
-
-The systemic-disease tasks are scientifically interesting, but they are also the easiest to overinterpret.
-
-The model predicts future incidence or risk from retinal images. It does not diagnose systemic disease directly, and it does not demonstrate a causal biological mechanism.
-
-For high-stakes outcomes such as myocardial infarction or stroke, retinal AI should be evaluated as one possible component of a broader clinical risk-assessment workflow, not as a standalone decision-maker.
-
-### Pretraining is expensive
-
-RETFound makes downstream fine-tuning cheaper, but the original pretraining stage is still resource-intensive.
-
-The authors report using eight A100 GPUs for about two weeks. This creates a practical tension: foundation models may democratize downstream experimentation, but building the original foundation model remains accessible mainly to institutions with substantial data and compute resources.
-
-### From retrospective evaluation to clinical impact
-
-Finally, the paper is based on retrospective datasets. Before clinical deployment, a model would need prospective validation in realistic workflows.
-
-Important questions include:
-
-- Does the model improve clinician decisions?
-- Does it improve patient outcomes?
-- Does it remain calibrated after deployment?
-- How should uncertainty be communicated?
-- What happens when images are low quality or incomplete?
-- Which patients benefit, and which groups may be disadvantaged?
-
-These questions go beyond AUROC and are essential for responsible clinical AI.
+6. **Reproducibility beyond code release.** The authors release code, but key pretraining and linked clinical cohorts are controlled-access because of privacy restrictions.[^retfound] This is understandable, but it limits independent reproduction of the full training pipeline. Federated or privacy-preserving evaluation could help close that gap.
 
 ## Takeaways
 
-RETFound demonstrates a compelling use of self-supervised learning for medical imaging.
+RETFound is compelling because it reframes retinal AI as a representation-learning problem rather than a collection of isolated classifiers.
 
-Its central contribution is not simply a new classifier for one disease. Instead, it shows how large collections of unlabelled retinal images can be converted into reusable representations that support many downstream tasks.
+The paper supports three core conclusions:
 
-The paper provides evidence for three main claims:
+1. A masked autoencoder can learn useful retinal structure from unlabelled CFP and OCT images by reconstructing missing patches.
 
-1. **Sequential self-supervised pretraining on natural images and retinal images improves transfer performance.**
+2. Starting with generic ImageNet SSL and then specializing on retinal data improves transfer relative to the study’s alternative pretraining routes.
 
-2. **The learned representations can reduce the amount of labelled data and fine-tuning time required for several clinical tasks.**
+3. The resulting encoder can improve label efficiency and performance across ocular diagnosis, prognosis, and several systemic-risk tasks—while still facing important limits under cohort shift.
 
-3. **Retinal foundation models are promising for ocular diagnosis, prognosis, and systemic-risk prediction, but external robustness and clinical validation remain major open challenges.**
-
-The most balanced interpretation is that RETFound is an important step toward general-purpose retinal AI. It is a strong research foundation, not yet a finished clinical decision system.
+The most useful way to think about RETFound is as a strong *research foundation*: it reduces the cost of building new retinal models and provides evidence that retinal self-supervision transfers across tasks. It is not yet evidence that one universal retinal model is clinically reliable everywhere, or that retinal-image predictions can replace broader clinical assessment.
 
 ## References
 
-1. Zhou, Y. et al. (2023). *A foundation model for generalizable disease detection from retinal images*. Nature, 622, 156–163. https://doi.org/10.1038/s41586-023-06555-x
+[^retfound]: Zhou, Y. *et al.* (2023). *A foundation model for generalizable disease detection from retinal images*. **Nature**, 622, 156–163. [https://doi.org/10.1038/s41586-023-06555-x](https://doi.org/10.1038/s41586-023-06555-x)
 
-2. He, K. et al. (2022). *Masked autoencoders are scalable vision learners*. Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 16000–16009. https://doi.org/10.1109/CVPR52688.2022.01553
+[^mae]: He, K. *et al.* (2022). *Masked autoencoders are scalable vision learners*. In **Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition**, 16000–16009. [https://doi.org/10.1109/CVPR52688.2022.01553](https://doi.org/10.1109/CVPR52688.2022.01553)
 
-3. Dosovitskiy, A. et al. (2021). *An image is worth 16×16 words: Transformers for image recognition at scale*. International Conference on Learning Representations.
+[^vit]: Dosovitskiy, A. *et al.* (2021). *An image is worth 16×16 words: Transformers for image recognition at scale*. **International Conference on Learning Representations**. [https://openreview.net/forum?id=YicbFdNTTy](https://openreview.net/forum?id=YicbFdNTTy)
 
-4. Bommasani, R. et al. (2021). *On the opportunities and risks of foundation models*. arXiv:2108.07258. https://doi.org/10.48550/arXiv.2108.07258
+[^foundation]: Bommasani, R. *et al.* (2021). *On the opportunities and risks of foundation models*. arXiv:2108.07258. [https://doi.org/10.48550/arXiv.2108.07258](https://doi.org/10.48550/arXiv.2108.07258)
 
-5. Chefer, H., Gur, S., & Wolf, L. (2021). *Transformer interpretability beyond attention visualization*. Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 782–791. https://doi.org/10.1109/CVPR46437.2021.00084
+[^relprop]: Chefer, H., Gur, S., & Wolf, L. (2021). *Transformer interpretability beyond attention visualization*. In **Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition**, 782–791. [https://doi.org/10.1109/CVPR46437.2021.00084](https://doi.org/10.1109/CVPR46437.2021.00084)
