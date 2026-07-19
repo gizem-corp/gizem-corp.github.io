@@ -25,7 +25,7 @@ classes: wide
 
 ## The question behind RETFound
 
-Retinal imaging is an unusually attractive setting for medical machine learning. Colour fundus photographs and optical coherence tomography scans are routinely acquired in eye care, creating large image repositories long before anybody decides which downstream prediction task they may support. Yet the labels needed for conventional supervised learning are much scarcer than the images themselves. A reliable diabetic-retinopathy grade, a glaucoma assessment, or a future cardiovascular outcome may require specialist review, longitudinal records, or both.
+Retinal imaging is an unusually attractive setting for medical machine learning. Colour fundus photographs (CFP) and optical coherence tomography (OCT) scans are routinely acquired in eye care, creating large image repositories long before anybody decides which downstream prediction task they may support. **Yet the labels needed for conventional supervised learning are much scarcer than the images themselves.** A reliable diabetic-retinopathy grade, a glaucoma assessment, or a future cardiovascular outcome may require specialist review, longitudinal records, or both.
 
 This imbalance creates a familiar problem. A task-specific classifier can be excellent when it is trained on a well-labelled dataset collected for exactly that purpose. It is much less obvious how to reuse the same model for another disease, another imaging device, or another hospital. RETFound asks whether representation learning can move the expensive clinical supervision to the *end* of the pipeline: first learn a broad visual model of the retina from unlabelled images, then adapt that model with comparatively few labels to several clinical tasks.[^retfound][^foundation]
 
