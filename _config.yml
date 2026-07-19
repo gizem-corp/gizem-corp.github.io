@@ -208,6 +208,7 @@ incremental: false
 # Markdown Processing
 kramdown:
   input: GFM
+  math_engine: mathjax
   hard_wrap: false
   auto_ids: true
   footnote_nr: 1
@@ -215,7 +216,6 @@ kramdown:
   toc_levels: 1..6
   smart_quotes: lsquo,rsquo,ldquo,rdquo
   enable_coderay: false
-
 
 # These settings control the types of collections used by the template
 collections:
