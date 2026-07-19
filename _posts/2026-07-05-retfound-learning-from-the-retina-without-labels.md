@@ -79,50 +79,50 @@ A useful way to understand RETFound is to separate its two objectives. The model
 
 ### Stage 1: reconstructing masked retinal content
 
-Let a preprocessed image be denoted by \(x\). After the 224 × 224 crop, RETFound divides it into 16 × 16 patches, producing a sequence of \(N = 14 \times 14 = 196\) visual tokens. Let \(M\) be the set of masked patch indices and \(V\) the visible indices.
+Let a preprocessed image be denoted by $x$. After the 224 × 224 crop, RETFound divides it into 16 × 16 patches, producing a sequence of $N = 14 \times 14 = 196$ visual tokens. Let $M$ be the set of masked patch indices and $V$ the visible indices.
 
 The encoder receives only the visible patches:
 
-\[
-z = E_{\theta}(x_V),
-\]
+$$
+z = E_{\theta}(x_V)
+$$
 
-where \(E_{\theta}\) is the Vision Transformer encoder. A decoder then receives the encoded visible representation together with mask tokens and estimates the missing content:
+where $E_{\theta}$ is the Vision Transformer encoder. A decoder then receives the encoded visible representation together with mask tokens and estimates the missing content:
 
-\[
-\hat{x}_M = D_{\phi}(z, M).
-\]
+$$
+\hat{x}_M = D_{\phi}(z, M)
+$$
 
 Conceptually, the pretraining loss can be written as
 
-\[
+$$
 \mathcal{L}_{\mathrm{MAE}}
 =
 \frac{1}{|M|}
 \sum_{i \in M}
-\ell(\hat{x}_i, x_i),
-\]
+\ell(\hat{x}_i, x_i)
+$$
 
-where \(\ell\) is a reconstruction-error term evaluated only on the hidden patches. The paper describes the objective as reconstruction error; the equation above is a compact way to state the masked-patch objective rather than an additional modelling assumption.[^retfound][^mae]
+where $\ell$ is a reconstruction-error term evaluated only on the hidden patches. The paper describes the objective as reconstruction error; the equation above is a compact way to state the masked-patch objective rather than an additional modelling assumption.[^retfound][^mae]
 
 This is the first place where the “self” in self-supervised learning becomes concrete: the image supplies its own target. No clinician has to annotate the pretraining corpus.
 
 ### Stage 2: predicting a labelled clinical outcome
 
-For a downstream task, the decoder is discarded. The retained encoder maps a full image \(x\) to a representation \(h\), and a multilayer perceptron head \(g_{\psi}\) maps that representation to class probabilities:
+For a downstream task, the decoder is discarded. The retained encoder maps a full image $x$ to a representation $h$, and a multilayer perceptron head $g_{\psi}$ maps that representation to class probabilities:
 
-\[
+$$
 h = E_{\theta}(x), \qquad
-p(y \mid x) = g_{\psi}(h).
-\]
+p(y \mid x) = g_{\psi}(h)
+$$
 
-For a multiclass task, a label-smoothed version of the one-hot target \(\tilde{y}\) is used in a cross-entropy-style objective:
+For a multiclass task, a label-smoothed version of the one-hot target $\tilde{y}$ is used in a cross-entropy-style objective:
 
-\[
+$$
 \mathcal{L}_{\mathrm{FT}}
 =
--\sum_{c=1}^{C} \tilde{y}_{c} \log p(y=c \mid x).
-\]
+-\sum_{c=1}^{C} \tilde{y}_{c} \log p(y=c \mid x)
+$$
 
 For binary prognosis and incidence tasks, the same logic reduces to estimating a probability for the event of interest. The authors train the downstream models for 50 epochs and select the checkpoint with the highest validation AUROC.[^retfound]
 
