@@ -41,11 +41,6 @@ The downstream tasks fall into three groups:
 
 The third setting needs careful wording. A retinal scan does not directly diagnose heart failure, myocardial infarction, stroke, or Parkinson's disease. RETFound outputs a statistical risk estimate learned from associations in retrospective data. It does not establish a causal mechanism, and it should not be interpreted as a stand-alone clinical decision-maker.
 
-FIGURE 1 PLACEHOLDER: CFP vs OCT MODALITIES
-Use the presentation image that shows CFP and OCT side by side.
-Suggested file name after upload: /images/retfound/cfp-oct-comparison.png
-
-Insert after uploading:
 <figure>
   <img src="/images/retfound/cfp-oct-comparison.png" alt="CFP and OCT retinal imaging modalities" style="width:100%;">
   <figcaption><strong>Figure 1.</strong> CFP provides a surface view of the retina, while OCT provides a cross-sectional view of retinal layers.</figcaption>
@@ -143,11 +138,6 @@ The two-stage distinction is the core of the method:
 
 RETFound uses a masked autoencoder (MAE), a self-supervised architecture introduced for image representation learning by He et al. [2]. The model deliberately hides most of its input, processes only the visible part with a large encoder, and reconstructs the missing content with a lighter decoder.
 
-FIGURE 2 PLACEHOLDER: SELF-SUPERVISED PRETRAINING / MAE PIPELINE
-Use the presentation image titled "Self-Supervised Pretraining".
-Suggested file name after upload: /images/retfound/mae-pretraining-pipeline.png
-
-Insert after uploading:
 <figure>
   <img src="/images/retfound/mae-pretraining-pipeline.png" alt="Self-supervised masked-autoencoder pretraining pipeline for RETFound" style="width:100%;">
   <figcaption><strong>Figure 2.</strong> RETFound learns from unlabelled retinal images by masking many patches and reconstructing the missing content.</figcaption>
@@ -182,11 +172,6 @@ This scale is both a strength and a caveat. It makes a rich retinal representati
 
 The most interesting part of RETFound is not only its architecture. It is the four-way comparison used to ask **where useful representations come from**.
 
-FIGURE 3 PLACEHOLDER: FOUR PRETRAINING STRATEGIES
-Use the presentation/paper image showing SL-ImageNet, SSL-ImageNet, SSL-Retinal and RETFound.
-Suggested file name after upload: /images/retfound/pretraining-strategies.png
-
-Insert after uploading:
 <figure>
   <img src="/images/retfound/pretraining-strategies.png" alt="Four pretraining strategies compared in RETFound" style="width:100%;">
   <figcaption><strong>Figure 3.</strong> The four comparison strategies test whether supervised ImageNet transfer, generic self-supervision, retinal self-supervision, or their sequential combination gives the strongest representation. Adapted from Zhou et al. (2023).</figcaption>
@@ -210,11 +195,6 @@ The comparison with other SSL methods is also informative but not perfectly isol
 
 RETFound is evaluated on several types of experiments. Each supports a different claim, and each has limits.
 
-FIGURE 4 PLACEHOLDER: TASK FAMILIES AND INTERNAL/EXTERNAL EVALUATION
-Use the presentation diagram with three rows: ocular diagnosis, ocular prognosis, and oculomics; internal/external datasets.
-Suggested file name after upload: /images/retfound/evaluation-task-families.png
-
-Insert after uploading:
 <figure>
   <img src="/images/retfound/evaluation-task-families.png" alt="RETFound task families and internal or external evaluation settings" style="width:100%;">
   <figcaption><strong>Figure 4.</strong> RETFound is evaluated across ocular diagnosis, wet-AMD prognosis, and systemic risk prediction, with different internal and external validation settings.</figcaption>
