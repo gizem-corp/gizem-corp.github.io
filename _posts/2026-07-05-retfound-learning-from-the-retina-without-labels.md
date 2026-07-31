@@ -43,7 +43,7 @@ The third setting needs careful wording. A retinal scan does not directly diagno
 
 <figure>
   <img src="/images/retfound/cfp-oct-comparison.png" alt="CFP and OCT retinal imaging modalities" style="width:100%;">
-  <figcaption><strong>Figure 1.</strong> CFP provides a surface view of the retina, while OCT provides a cross-sectional view of retinal layers.</figcaption>
+  <figcaption><strong>Figure 1.</strong> CFP provides a surface view of the retina, while OCT provides a cross-sectional view of retinal layers. Image sources are listed in the references.</figcaption>
 </figure>
 
 
@@ -74,6 +74,8 @@ The OCT choice is important. Taking one central B-scan makes a large-scale Trans
 ## RETFound as a machine-learning problem
 
 A useful way to understand RETFound is to separate its two objectives. During pretraining, the model solves a self-supervised image-reconstruction problem. During fine-tuning, it solves a supervised clinical prediction problem.
+
+The equations below are my compact notation for the objectives described in the paper; they are not additional assumptions or equations introduced by Zhou et al.
 
 | Stage | Input | Output / target | Learning objective |
 |---|---|---|---|
@@ -351,3 +353,7 @@ The most useful way to think about RETFound is as a strong **research foundation
 [4] Chefer, H., Gur, S., & Wolf, L. (2021). *Transformer interpretability beyond attention visualization*. In **Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition**, 782–791. https://doi.org/10.1109/CVPR46437.2021.00084
 
 [5] Bommasani, R. et al. (2021). *On the opportunities and risks of foundation models*. arXiv:2108.07258. https://doi.org/10.48550/arXiv.2108.07258
+
+[6] Ignis. (2007). *Fundus of eye normal* [Photograph]. Wikimedia Commons. CC BY-SA 3.0. https://commons.wikimedia.org/wiki/File:Fundus_of_eye_normal.jpg
+
+[7] Mckenzie, S. (2018, October 10). *What is Optical Coherence Tomography?* News-Medical. Image credit: Chaiwut Siriphithakwong / Shutterstock. https://www.news-medical.net/health/What-is-Optical-Coherence-Tomography.aspx
